@@ -1,0 +1,256 @@
+<!DOCTYPE html>
+<html>
+
+<head>
+  <title>Curling Delivery Analyzer</title>
+  <script type="text/javascript" src="https://www.gstatic.com/charts/loader.js"></script>
+  <style>
+    body {
+      font-family: sans-serif;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      touch-action: manipulation;
+    }
+
+    #accelerationChart {
+      width: 80vw;
+      height: 60vh;
+      max-width: 800px;
+      max-height: 600px;
+    }
+
+    button {
+      font-size: 2em;
+      padding: 15px 30px;
+      margin: 10px;
+      border-radius: 10px;
+      border: none;
+      background-color: #4CAF50;
+      color: white;
+      cursor: pointer;
+    }
+
+    button:disabled {
+      background-color: #ddd;
+      cursor: default;
+    }
+  </style>
+</head>
+
+<body>
+  <h1>Curling Delivery Analyzer</h1>
+
+  <div>
+    <button id="startButton">Start</button>
+    <button id="stopButton" disabled>Stop</button>
+    <button id="resetButton">Reset</button>
+    <button id="clearHistoryButton">Clear History</button>
+  </div>
+
+  <div>
+    <label for="smoothingFactor">Smoothing:</label>
+    <select id="smoothingFactor">
+      <option value="0">None</option>
+      <option value="3">Low</option>
+      <option value="5">Medium</option>
+      <option value="7" selected>High</option>
+    </select>
+  </div>
+
+  <div id="accelerationChart"></div>
+
+  <script>
+    const startButton = document.getElementById('startButton');
+    const stopButton = document.getElementById('stopButton');
+    const resetButton = document.getElementById('resetButton');
+    const   
+ clearHistoryButton = document.getElementById('clearHistoryButton');
+    const smoothingFactorSelect = document.getElementById('smoothingFactor');
+
+    let accelerationData = [];
+    let startTime = 0;
+    let maxAcceleration = 0;
+    let estimatedMaxVelocity = 0;
+    let isRecording = false;
+    const maxRecordingTime = 10 * 1000;
+    let historicalData = [];
+
+    // Predefined colors for up to 10 series (corrected format)
+    const seriesColors = [
+      'rgb(75, 192, 192)',
+      'rgb(255, 99, 132)',
+      'rgb(54, 162, 235)',
+      'rgb(255, 206, 86)',
+      'rgb(75, 192, 192)',
+      'rgb(153, 102, 255)',
+      'rgb(255, 159, 64)',   
+
+      'rgb(128, 0, 128)', // Changed color
+      'rgb(0, 128, 128)', // Changed color
+      'rgb(128, 128, 0)'  // Changed color
+    ];
+
+    google.charts.load('current', { 'packages': ['corechart'] });
+    google.charts.setOnLoadCallback(drawChart);
+
+    function movingAverage(data, windowSize) {
+      if (windowSize <= 1) {
+        return data;
+      }
+      const smoothedData = [];
+      for (let i = 0; i < data.length; i++) {
+        let sum = 0;
+        let count = 0;
+        for (let j = Math.max(0, i - windowSize + 1); j <= i; j++) {
+          sum += data[j].acceleration;
+          count++;
+        }
+        smoothedData.push({ time: data[i].time, acceleration: sum / count });
+      }
+      return smoothedData;
+    }
+
+    function drawChart() {
+      let data = new google.visualization.DataTable();
+      data.addColumn('number', 'Time (s)');
+      data.addColumn('number', 'Acceleration (m/s²)');
+
+      let options = {
+        title: 'Acceleration vs Time',
+        hAxis: {
+          title: 'Time (s)',
+          minValue: 0,
+          maxValue: 10,
+          viewWindow: {
+            min: 0,
+            max: 10
+          }
+        },
+        vAxis: {
+          title: 'Acceleration (m/s²)'
+        },
+        curveType: 'function',
+        legend: { position: 'bottom' },
+        series: {}
+      };
+
+      const smoothingFactor = parseInt(smoothingFactorSelect.value);
+      const smoothedData = movingAverage(accelerationData, smoothingFactor);
+
+      smoothedData.forEach(dataPoint => {
+        data.addRow([dataPoint.time / 1000, dataPoint.acceleration]);
+      });
+
+      historicalData.forEach((delivery, index) => {
+        const smoothedDelivery = movingAverage(delivery, smoothingFactor);
+        data.addColumn('number', `Delivery ${index + 1}`);
+
+        // Use predefined colors for each series
+        options.series[index + 1] = {
+          color: seriesColors[index + 1] || 'gray' // Use gray as default if no color is defined
+        };
+
+        smoothedDelivery.forEach((dataPoint, rowIndex) => {
+          if (rowIndex < data.getNumberOfRows()) {
+            data.setValue(rowIndex, index + 2, dataPoint.acceleration);
+          } else {
+            data.addRow([dataPoint.time / 1000, null, dataPoint.acceleration]);
+          }
+        });
+      });
+
+      let chart = new google.visualization.LineChart(document.getElementById('accelerationChart'));
+
+      if (data.getNumberOfRows() > 0) {
+        chart.draw(data, options);
+      }
+    }
+
+    startButton.addEventListener('click', startRecording);
+    stopButton.addEventListener('click', stopRecording);
+    resetButton.addEventListener('click', resetRecording);
+    clearHistoryButton.addEventListener('click', clearHistory);
+    smoothingFactorSelect.addEventListener('change', drawChart);
+
+    function startRecording() {
+      if (window.DeviceMotionEvent) {
+        isRecording = true;
+        startButton.disabled = true;
+        stopButton.disabled = false;
+        accelerationData = [];
+        maxAcceleration = 0;
+        estimatedMaxVelocity = 0;
+        startTime = Date.now();
+
+        window.addEventListener('devicemotion', handleMotion);
+      } else {
+        alert("DeviceMotionEvent is not supported on this device.");
+      }
+    }
+
+    function handleMotion(event) {
+      if (isRecording) {
+        const currentTime = Date.now() - startTime;
+
+        if (currentTime > maxRecordingTime) {
+          stopRecording();
+          return;
+        }
+
+        const acceleration = Math.sqrt(
+          event.acceleration.x ** 2 +
+          event.acceleration.y ** 2 +
+          event.acceleration.z ** 2
+        );
+
+        accelerationData.push({ time: currentTime, acceleration });
+
+        if (acceleration > maxAcceleration) {
+          maxAcceleration = acceleration;
+        }
+
+        drawChart();
+      }
+    }
+
+    function stopRecording() {
+      isRecording = false;
+      startButton.disabled = false;
+      stopButton.disabled = true;
+      window.removeEventListener('devicemotion', handleMotion);
+
+      let velocity = 0;
+      for (let i = 1; i < accelerationData.length; i++) {
+        const timeDiff = (accelerationData[i].time - accelerationData[i - 1].time) / 1000;
+        velocity += accelerationData[i].acceleration * timeDiff;
+        if (velocity > estimatedMaxVelocity) {
+          estimatedMaxVelocity = velocity;
+        }
+      }
+
+      console.log("Maximum Acceleration:", maxAcceleration.toFixed(2), "m/s²");
+      console.log("Estimated Max Velocity:", estimatedMaxVelocity.toFixed(2), "m/s");
+
+      if (historicalData.length >= 10) {
+        historicalData.shift();
+      }
+      historicalData.push(accelerationData);
+
+      drawChart();
+    }
+
+    function resetRecording() {
+      stopRecording();
+      accelerationData = [];
+      drawChart();
+    }
+
+    function clearHistory() {
+      historicalData = [];
+      drawChart();
+    }
+  </script>
+</body>
+
+</html>
