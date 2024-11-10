@@ -64,8 +64,7 @@
     const startButton = document.getElementById('startButton');
     const stopButton = document.getElementById('stopButton');
     const resetButton = document.getElementById('resetButton');
-    const   
- clearHistoryButton = document.getElementById('clearHistoryButton');
+    const clearHistoryButton = document.getElementById('clearHistoryButton');
     const smoothingFactorSelect = document.getElementById('smoothingFactor');
 
     let accelerationData = [];
@@ -76,7 +75,7 @@
     const maxRecordingTime = 10 * 1000;
     let historicalData = [];
 
-    // Predefined colors for up to 10 series (corrected format)
+    // Predefined colors for up to 10 series (all rgb)
     const seriesColors = [
       'rgb(75, 192, 192)',
       'rgb(255, 99, 132)',
@@ -84,11 +83,10 @@
       'rgb(255, 206, 86)',
       'rgb(75, 192, 192)',
       'rgb(153, 102, 255)',
-      'rgb(255, 159, 64)',   
-
-      'rgb(128, 0, 128)', // Changed color
-      'rgb(0, 128, 128)', // Changed color
-      'rgb(128, 128, 0)'  // Changed color
+      'rgb(255, 159, 64)',
+      'rgb(128, 0, 128)',
+      'rgb(0, 128, 128)',
+      'rgb(128, 128, 0)'
     ];
 
     google.charts.load('current', { 'packages': ['corechart'] });
@@ -111,6 +109,23 @@
       return smoothedData;
     }
 
+    function alignTimeSeries(data) {
+      let offsetIndex = 0;
+      for (let i = 0; i < data.length; i++) {
+        if (data[i].acceleration > 0.5) {
+          offsetIndex = i;
+          break;
+        }
+      }
+      const alignedData = data.map((point, index) => {
+        return {
+          time: (point.time - data[offsetIndex].time) / 1000,
+          acceleration: point.acceleration
+        };
+      });
+      return alignedData;
+    }
+
     function drawChart() {
       let data = new google.visualization.DataTable();
       data.addColumn('number', 'Time (s)');
@@ -120,10 +135,10 @@
         title: 'Acceleration vs Time',
         hAxis: {
           title: 'Time (s)',
-          minValue: 0,
+          minValue: -3,  // Allow negative time values
           maxValue: 10,
           viewWindow: {
-            min: 0,
+            min: -3,  // Allow negative time values
             max: 10
           }
         },
@@ -136,26 +151,35 @@
       };
 
       const smoothingFactor = parseInt(smoothingFactorSelect.value);
-      const smoothedData = movingAverage(accelerationData, smoothingFactor);
+      let smoothedData = movingAverage(accelerationData, smoothingFactor);
+
+      // Only align the current delivery's time series
+      smoothedData = alignTimeSeries(smoothedData); 
 
       smoothedData.forEach(dataPoint => {
-        data.addRow([dataPoint.time / 1000, dataPoint.acceleration]);
+        data.addRow([dataPoint.time, dataPoint.acceleration]);
       });
 
       historicalData.forEach((delivery, index) => {
-        const smoothedDelivery = movingAverage(delivery, smoothingFactor);
+        let smoothedDelivery = movingAverage(delivery, smoothingFactor);
+        
+        // Align historical deliveries only once when they are recorded
+        if (!delivery.aligned) { 
+          smoothedDelivery = alignTimeSeries(smoothedDelivery);
+          delivery.aligned = true; // Mark as aligned
+        }
+
         data.addColumn('number', `Delivery ${index + 1}`);
 
-        // Use predefined colors for each series
         options.series[index + 1] = {
-          color: seriesColors[index + 1] || 'gray' // Use gray as default if no color is defined
+          color: seriesColors[index + 1] || 'gray'
         };
 
         smoothedDelivery.forEach((dataPoint, rowIndex) => {
           if (rowIndex < data.getNumberOfRows()) {
             data.setValue(rowIndex, index + 2, dataPoint.acceleration);
           } else {
-            data.addRow([dataPoint.time / 1000, null, dataPoint.acceleration]);
+            data.addRow([dataPoint.time, null, dataPoint.acceleration]);
           }
         });
       });
@@ -167,7 +191,7 @@
       }
     }
 
-    startButton.addEventListener('click', startRecording);
+startButton.addEventListener('click', startRecording);
     stopButton.addEventListener('click', stopRecording);
     resetButton.addEventListener('click', resetRecording);
     clearHistoryButton.addEventListener('click', clearHistory);
